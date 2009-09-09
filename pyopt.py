@@ -12,23 +12,24 @@ arguments and enforcing argument count:
 
     @expose.args
     def regular_function(arg1:str, arg2:int):
-        '''docstring'''
+        '''Your help - the docstring'''
         # bla, etc, foobar spam...
         print(repr(arg1), repr(arg2))
 
     if __name__ == "__main__":
         expose.run()
 
-There are 2 modes of operation:
+There are 3 modes of operation:
     1. expose.args - A decorator for positional arguments.
     2. expose.kwargs - A decorator for keyword arguments.
+    3. expose.mixed - A decorator for keyword and positional arguments.
 
 Currently known compromises that are open to discussion, e-mail me:
     1. This module was specifically designed with python 3 in mind, certain features
         can be converted to python 2.x, but the awesome ones can't.
     2. Keyword command-line functions require every argument to start with a
         different letter to avoid collisions.
-    3. Annotations are mandatory, I don't know if this is the right way to go,
+    3. Annotations aren't mandatory, I don't know if this is the right way to go,
         it's an explicity vs convenience issue.
     4. Booleans can't default to false. I couldn't think of a use case for this
         so tell me if you did.
@@ -64,12 +65,13 @@ HELP_SET = {"-h", "--help", "/?", "?", "-?"}
 
 
 
-def print_usage_single_func(script_name, func):
+def usage_single_func(script_name, func):
     args_repr = func.parameters_repr()
-    print("Usage: %s %s" % (script_name, args_repr))
+    usage = "Usage: %s %s" % (script_name, args_repr)
     if func.function.__doc__ is not None:
         # strip for the docstring guys that don't want text on the same line with '''
-        print(indent(func.function.__doc__.strip(), 1))
+        usage += "\n" + indent(func.function.__doc__.strip(), 1)
+    return usage
     
 def indent(string, tab_count):
     lines = string.splitlines()
@@ -80,7 +82,7 @@ def indent(string, tab_count):
 
 
 class FunctionWrapper:
-    def __init__(self, function):
+    def __init__(self, function, default_cast=str):
         """
         Gives all the needed information about a function and puts it in
         attributes on the function. ie:
@@ -97,7 +99,9 @@ class FunctionWrapper:
         defaults_count = 0 if (defaults is None) else len(defaults)
         not_default_count = len(arg_names) - defaults_count
         not_defaulted = arg_names[:not_default_count]
-        casts = {name: function.__annotations__.get(name, str) for name in arg_names}
+        
+        # get all the casts from the annotations, default to default_cast (probably str)
+        casts = {name: function.__annotations__.get(name, default_cast) for name in arg_names}
         booleans = [arg for arg in arg_names if casts[arg] is bool]
         required = [arg for arg in not_defaulted if arg not in booleans]
         
@@ -111,7 +115,6 @@ class FunctionWrapper:
         self.defaults_count = defaults_count
         self.needed_args = len(self.arg_names) - self.defaults_count
         
-        # get all the casts from the annotations, default to str
         self.casts = casts
         
     
@@ -177,7 +180,6 @@ class MixedFunction(FunctionWrapper):
         req_str = ' '.join(["-%s %s" % (arg[0], arg) for arg in self.required])
         opt_str = ' '.join(["[-%s %s]" % (arg[0], arg) for arg in self.optional if arg not in self.booleans])
         bools_str = ' '.join(["[-%s]" % arg[0] for arg in self.booleans])
-        
         return " ".join([req_str, opt_str, bools_str])
 
     def parse(self, raw_args=[]):
@@ -349,7 +351,7 @@ class Exposer:
             self.raw_args = cmd_args[2:]
             if len(cmd_args) < 2:
                 # not single so must be given a function name.
-                raise PrintHelp(self.print_complete_usage())
+                raise PrintHelp(self.complete_usage())
             if cmd_args[1] in HELP_SET:
                 raise PrintHelp(self.give_help())
             
@@ -362,15 +364,15 @@ class Exposer:
         
         if (self.is_single) and (len(cmd_args) > 1):
             if cmd_args[1] in HELP_SET:
-                raise PrintHelp(print_usage_single_func(basename(cmd_args[0]), self.func))
+                raise PrintHelp(usage_single_func(basename(cmd_args[0]), self.func))
         
         args, kwargs = self.func.parse(self.raw_args)
-        return self.func, args, kwargs
+        return self.func.function, args, kwargs
         
     def run(self, cmd_args=sys.argv):
         try:
             func, args, kwargs = self.parse_args(cmd_args)
-            func(*args, **kwargs)
+            return func(*args, **kwargs)
         except PrintHelp as e:
             print(e)
         except ValueError as e:
@@ -379,11 +381,13 @@ class Exposer:
             print(e, "Run with ? or -h for more help.")
     
     
-    def print_complete_usage(self):
-        print("Usage: %s [function_name] [args]" % self.script_name)
-        print("Available functions are:")
+    def complete_usage(self):
+        usage_lines = []
+        usage_lines.append("Usage: %s [function_name] [args]" % self.script_name)
+        usage_lines.append("Available functions are:")
         for func in self.functions_dict.values():
-            print(func.get_usage())
+            usage_lines.append(func.get_usage())
+        return '\n'.join(usage_lines)
     
     
     def give_help(self):
@@ -399,6 +403,6 @@ class Exposer:
                 #kw_func_usage(self.func))
         except (IndexError, KeyError) as e:
             # print usage for this script
-            self.print_complete_usage()  
+            return self.complete_usage()  
 
 

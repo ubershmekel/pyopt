@@ -64,5 +64,5 @@ if __name__ == "__main__":
     expose.run()
     
     # usage for just simplifying optparse:
-    #func, options, args = expose.parse_args()
+    #func, args, kwargs = expose.parse_args()
 
