@@ -8,11 +8,11 @@ Take note of the current restrictions (might change in the future):
 """
 
 
-from pyopt import CmdPos
-from pyopt import CmdKw
-from pyopt import parse_cmds
+import pyopt
 
-@CmdPos
+expose = pyopt.Exposer()
+
+@expose.args
 def possy(archer:str, boulder:float, magic:int=42):
     """Shows an example positional command-line function.
         archer - is a str
@@ -22,7 +22,7 @@ def possy(archer:str, boulder:float, magic:int=42):
 
 
 
-#@CmdKw
+@expose.kwargs
 def bigfun(brightness:int, nudge:bool, happy:bool, shaft:str='gold'):
     """
     bigfun is a keyword command-line function.
@@ -45,6 +45,24 @@ def bigfun(brightness:int, nudge:bool, happy:bool, shaft:str='gold'):
         print("Let's bicker and argue over who killed who.")
 
 
+import random
+
+@expose.mixed
+def roll_dice(number_of_faces:int, repetitions:int):
+    """
+    Roll the dice to see if you're lucky or for general D&D pleasure.
+    -n --number_of_faces - the max value of the die.
+    -r --repititions - the amount of times to throw the dice.
+    """
+    results = (random.randint(1, number_of_faces) for i in range(repetitions))
+    for res in results:
+        print(res, end=' ')
+
 if __name__ == "__main__":
-    parse_cmds()
+    # Now just run whichever functions you exposed, the return value is whatever
+    # your function returned.
+    expose.run()
+    
+    # usage for just simplifying optparse:
+    #func, options, args = expose.parse_args()
 
