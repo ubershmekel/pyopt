@@ -398,7 +398,7 @@ class Exposer:
                 # in case the function isn't found, a KeyError is thrown so
                 # the complete usage will be printed.
                 self.func = self.functions_dict[func_name]
-                raise PrintHelp(self.func.get_usage())
+                return(self.func.get_usage())
                 # todo: erase this comment
                 #kw_func_usage(self.func))
         except (IndexError, KeyError) as e:
