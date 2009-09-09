@@ -1,5 +1,5 @@
 """
-pyopt
+pyopt version 0.7
 
 A module for command-line options with a pythonic, decorator-centric syntax.
 
@@ -51,6 +51,7 @@ import inspect
 
 class PyoptError(Exception): pass
 class PrintHelp(PyoptError): pass
+class NotEnoughArgs(PyoptError): pass
 
 HELP_SET = {"-h", "--help", "/?", "?", "-?"}
 
@@ -65,14 +66,6 @@ HELP_SET = {"-h", "--help", "/?", "?", "-?"}
 
 
 
-def usage_single_func(script_name, func):
-    args_repr = func.parameters_repr()
-    usage = "Usage: %s %s" % (script_name, args_repr)
-    if func.function.__doc__ is not None:
-        # strip for the docstring guys that don't want text on the same line with '''
-        usage += "\n" + indent(func.function.__doc__.strip(), 1)
-    return usage
-    
 def indent(string, tab_count):
     lines = string.splitlines()
     lines = [("\t" * tab_count) + ln.strip() for ln in lines]
@@ -121,6 +114,14 @@ class FunctionWrapper:
     def __call__(self, *args, **kwargs):
         return self.function(*args, **kwargs)
     
+    def cast_parameter(self, name, value):
+        try:
+            type_to_cast = self.casts[name]
+            parsed_arg = type_to_cast(value)
+            return parsed_arg
+        except Exception as e:
+            raise PyoptError("Failed parsing '%s', %s." % (name, e))
+    
     def get_doc(self):
         if self.function.__doc__ is None:
             return ""
@@ -146,6 +147,8 @@ class FunctionWrapper:
         This function should be implemented by subclasses and must return
         a list and a dictionary, args and kwargs, that way it's easy to call
         the function.
+        
+        In case not enough/too many args were given raise a PyoptError.
         """
         raise NotImplementedError
 
@@ -161,14 +164,13 @@ class ArgsFunction(FunctionWrapper):
         # NOTE: not len(required) because no need to mix with kw_parse boolean logic.
         
         if len(raw_args) < self.needed_args:
-            raise PyoptError("%d arguments required, got only %d." % (self.needed_args, len(raw_args)))
+            raise NotEnoughArgs("%d arguments required, got only %d." % (self.needed_args, len(raw_args)))
         if len(raw_args) > len(self.arg_names):
             raise PyoptError("Got %d arguments and expected at most %d." % (len(raw_args), len(self.arg_names)))
         
         args_to_call_with = []
         for arg, arg_name in zip(raw_args, self.arg_names):
-            type_to_cast = self.casts[arg_name]
-            parsed_arg = type_to_cast(arg)
+            parsed_arg = self.cast_parameter(arg_name, arg)
             args_to_call_with.append(parsed_arg)
         
         return args_to_call_with, {}
@@ -194,7 +196,7 @@ class MixedFunction(FunctionWrapper):
         
         optlist, uncasted_args_list = getopt.getopt(raw_args, shorts_str, long_opts)
         
-        arg_names = list(self.arg_names)
+        pos_args = list(self.arg_names)
         kwargs_dict = {}
         for opt, val in optlist:
             if opt.startswith('--'):
@@ -203,15 +205,24 @@ class MixedFunction(FunctionWrapper):
                 short = opt[1]
                 name = short_to_name[short]
             
-            kwargs_dict[name] = self.casts[name](val)
+            kwargs_dict[name] = self.cast_parameter(name, val)
             # remove all the arguments which came from switches, the remainder
             # will be used for positional arguments 
-            arg_names.remove(name)
+            pos_args.remove(name)
         
         args_list = []
-        for name, val in zip(arg_names, uncasted_args_list):
-            args_list.append(self.casts[name](val))
+        args_given = []
+        for name, val in zip(pos_args, uncasted_args_list):
+            args_list.append(self.cast_parameter(name, val))
+            args_given.append(name)
         
+        # make sure all non-boolean, non-defaulted args were given
+        not_key_given = [arg for arg in self.required if arg not in kwargs_dict]
+        not_given = [arg for arg in not_key_given if arg not in args_given]
+        
+        if len(not_given) > 0:
+            raise NotEnoughArgs("The following options are required: %s." % ', '.join(not_given))
+            
         return args_list, kwargs_dict
 
 class KwargsFunction(FunctionWrapper):
@@ -260,13 +271,14 @@ class KwargsFunction(FunctionWrapper):
             
             val_type = self.casts[name]
             if val_type == bool:
-                val = True
+                parsed_val = True
             else:
                 # if not a bool then the next arg is the value of this option
-                val = val_type(raw_args[i + 1])
+                val = raw_args[i + 1]
+                parsed_val = self.cast_parameter(name, val)
                 i += 1
             
-            args_dict[name] = val
+            args_dict[name] = parsed_val
             
             i += 1
         
@@ -274,7 +286,7 @@ class KwargsFunction(FunctionWrapper):
         not_given = [arg for arg in self.required if arg not in args_dict]
         
         if len(not_given) > 0:
-            raise PyoptError("The following options are required: %s." % ', '.join(not_given))
+            raise NotEnoughArgs("The following options are required: %s." % ', '.join(not_given))
         
         return [], args_dict
 
@@ -331,27 +343,26 @@ class Exposer:
         self.cmd_args = cmd_args
         self.script_name = basename(cmd_args[0])
         total_funcs = len(self.functions_dict)
-        
         if total_funcs == 0:
             raise NotImplementedError("No functions were decorated for command-line usage.")
         
         if total_funcs == 1:
             self.is_single = True
-            self.func = next(iter(self.functions_dict.values()))
-        else:
-            self.is_single = False
-    
-        if self.is_single:
-            # if there is only one function, only get args
             self.raw_args = cmd_args[1:]
+            self.func = next(iter(self.functions_dict.values()))
+            if (len(cmd_args) > 1) and (cmd_args[1] in HELP_SET):
+                raise PrintHelp(self.complete_usage())
         else:
             # Multiple functions decorated :)
             # the first arg must be either the function name or help.
             # Find out which function this is.
+            self.is_single = False
             self.raw_args = cmd_args[2:]
+            
             if len(cmd_args) < 2:
                 # not single so must be given a function name.
                 raise PrintHelp(self.complete_usage())
+            
             if cmd_args[1] in HELP_SET:
                 raise PrintHelp(self.give_help())
             
@@ -361,12 +372,15 @@ class Exposer:
             else:
                 raise PyoptError("Unkown function '%s'." % cmd_args[1])
         
+        try:
+            args, kwargs = self.func.parse(self.raw_args)
+        except NotEnoughArgs as e:
+            if len(self.raw_args) == 0:
+                # no arguments given at all must mean noob trying to get info.
+                raise PrintHelp(self.func_usage())
+            else:
+                raise
         
-        if (self.is_single) and (len(cmd_args) > 1):
-            if cmd_args[1] in HELP_SET:
-                raise PrintHelp(usage_single_func(basename(cmd_args[0]), self.func))
-        
-        args, kwargs = self.func.parse(self.raw_args)
         return self.func.function, args, kwargs
         
     def run(self, cmd_args=sys.argv):
@@ -380,8 +394,25 @@ class Exposer:
         except PyoptError as e:
             print(e, "Run with ? or -h for more help.")
     
+    def single_usage(self):
+        func = self.func
+        args_repr = func.parameters_repr()
+        usage = "Usage: %s %s" % (self.script_name, args_repr)
+        if func.function.__doc__ is not None:
+            # strip for the docstring guys that don't want text on the same line with '''
+            usage += "\n" + indent(func.function.__doc__.strip(), 1)
+        return usage
+    
+    def func_usage(self):
+        if self.is_single:
+            return self.single_usage()
+        else:
+            return(self.func.get_usage())
     
     def complete_usage(self):
+        if self.is_single:
+            return self.single_usage()
+        
         usage_lines = []
         usage_lines.append("Usage: %s [function_name] [args]" % self.script_name)
         usage_lines.append("Available functions are:")
@@ -394,13 +425,10 @@ class Exposer:
         try:
             # give help to a specific func, if an index error occurs, give complete usage.
             func_name = self.cmd_args[2]
-            if func_name in self.functions_dict:
-                # in case the function isn't found, a KeyError is thrown so
-                # the complete usage will be printed.
-                self.func = self.functions_dict[func_name]
-                return(self.func.get_usage())
-                # todo: erase this comment
-                #kw_func_usage(self.func))
+            # in case the function isn't found, a KeyError is thrown so
+            # the complete usage will be printed.
+            self.func = self.functions_dict[func_name]
+            return(self.func.get_usage())
         except (IndexError, KeyError) as e:
             # print usage for this script
             return self.complete_usage()  
