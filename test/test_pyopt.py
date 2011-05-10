@@ -75,7 +75,7 @@ class TestSingleParser(unittest.TestCase):
         self.assertEqual(kwargs, {"nudge": True, "happy": True, "brightness": 120, "shaft": "dirt"})
 
 class TestMultipleParser(unittest.TestCase):
-    def test_single_arg_function(self):
+    def test_everything(self):
         expose = pyopt.Exposer()
         @expose.kwargs
         def bigfun(brightness:int, nudge:bool, happy:bool, shaft:str='gold'):
