@@ -43,11 +43,11 @@ Contact me at: ubershmekel at gmail
 """
 
 
-import sys
-from os.path import basename
-import types
-import getopt
-import inspect
+import sys as _sys
+from os.path import basename as _basename
+import getopt as _getopt
+import inspect as _inspect
+import re as _re
 
 class PyoptError(Exception): pass
 class PrintHelp(PyoptError): pass
@@ -57,11 +57,11 @@ HELP_SET = {"-h", "--help", "/?", "?", "-?"}
 
 
 # DBG
-#import pdb, sys, traceback
+#import pdb, _sys, traceback
 #def info(type, value, tb):
 #    traceback.print_exception(type, value, tb)
 #    pdb.pm()
-#sys.excepthook = info
+#_sys.excepthook = info
 # DBG
 
 
@@ -85,7 +85,7 @@ class FunctionWrapper:
             for positional arguments.
         """
         
-        args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = inspect.getfullargspec(function)
+        args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = _inspect.getfullargspec(function)
         
         arg_names = args
         # __defaults__ should have been an empty list, come on Guido...
@@ -155,10 +155,17 @@ class FunctionWrapper:
 
 class ArgsFunction(FunctionWrapper):
     def parameters_repr(self):
-        req_str = ' '.join(["%s" % arg for arg in self.required])
-        opt_str = ' '.join(["[%s]" % arg for arg in self.optional])
+        req_str = ["%s" % arg for arg in self.required]
+        opt_str = ["[%s]" % arg for arg in self.optional]
         
-        return " ".join([req_str, opt_str])
+        return " ".join(req_str + opt_str)
+    
+    def docstring_usage(self):
+        summary, docs_dict = _parse_docstring(self.function)
+        usage_lines = [summary]
+        for name, explanation in docs_dict.items():
+            usage_lines.append('\t%s - %s' % (name, explanation))
+        return '\n'.join(usage_lines)
     
     def parse(self, raw_args=[]):
         # NOTE: not len(required) because no need to mix with kw_parse boolean logic.
@@ -179,13 +186,28 @@ class MixedFunction(FunctionWrapper):
     def parameters_repr(self):
         # self.arg_names is the authorative order
         # todo: fix this
-        req_str = ' '.join(["-%s %s" % (arg[0], arg) for arg in self.required])
-        opt_str = ' '.join(["[-%s %s]" % (arg[0], arg) for arg in self.optional if arg not in self.booleans])
-        bools_str = ' '.join(["[-%s]" % arg[0] for arg in self.booleans])
-        return " ".join([req_str, opt_str, bools_str])
+        req_str = ["-%s %s" % (arg[0], arg) for arg in self.required]
+        opt_str = ["[-%s %s]" % (arg[0], arg) for arg in self.optional if arg not in self.booleans]
+        bools_str = ["[-%s]" % arg[0] for arg in self.booleans]
+        return " ".join(req_str + opt_str + bools_str)
+
+    def docstring_usage(self):
+        summary, docs_dict = _parse_docstring(self.function)
+        usage_lines = [summary]
+        short_to_name = self._shortcuts()
+        for name, explanation in docs_dict.items():
+            short = name[0]
+            if short_to_name[short] == name:
+                usage_lines.append('\t-%s --%s - %s' % (name[0], name, explanation))
+            else:
+                usage_lines.append('\t--%s - %s' % (name, explanation))
+        return '\n'.join(usage_lines)
+
+    def _shortcuts(self):
+        return {name[0]: name for name in self.arg_names}
 
     def parse(self, raw_args=[]):
-        short_to_name = {name[0]: name for name in self.arg_names}
+        short_to_name = self._shortcuts()
         
         shorts_str = ''
         shorts_str += ''.join([[name][0] for name in self.booleans])
@@ -194,7 +216,7 @@ class MixedFunction(FunctionWrapper):
         long_opts += [name for name in self.booleans]
         long_opts += ["%s=" % name for name in self.required]
         
-        optlist, uncasted_args_list = getopt.getopt(raw_args, shorts_str, long_opts)
+        optlist, uncasted_args_list = _getopt.getopt(raw_args, shorts_str, long_opts)
         
         pos_args = list(self.arg_names)
         kwargs_dict = {}
@@ -227,14 +249,19 @@ class MixedFunction(FunctionWrapper):
 
 class KwargsFunction(FunctionWrapper):
     def parameters_repr(self):
-        req_str = ' '.join(["-%s %s" % (arg[0], arg) for arg in self.required])
-        opt_str = ' '.join(["[-%s %s]" % (arg[0], arg) for arg in self.optional if arg not in self.booleans])
-        bools_str = ' '.join(["[-%s]" % arg[0] for arg in self.booleans])
+        req_str = ["-%s %s" % (arg[0], arg) for arg in self.required]
+        opt_str = ["[-%s %s]" % (arg[0], arg) for arg in self.optional if arg not in self.booleans]
+        bools_str = ["[-%s]" % arg[0] for arg in self.booleans]
         
-        return " ".join([req_str, opt_str, bools_str])
+        return " ".join(req_str + opt_str + bools_str)
 
+    docstring_usage = MixedFunction.docstring_usage
+    
+    def _shortcuts(self):
+        return {name[0]: name for name in self.arg_names}
+    
     def parse(self, raw_args=[]):
-        short_to_name = {name[0]: name for name in self.arg_names}
+        short_to_name = self._shortcuts()
         
         # where all the parsed arguments will be stored {name:value}
         args_dict = {}
@@ -296,6 +323,7 @@ class Exposer:
         Instead of decorators, you can pass functions to expose as a list.
         """
         self.functions_dict = {}
+        self.print = print
         
         for function in kw_funcs_list:
             self.kwargs(function)
@@ -339,9 +367,11 @@ class Exposer:
         self.functions_dict[function.__name__] =  MixedFunction(function)
         return function
     
-    def parse_args(self, cmd_args):
+    def _setup(self, cmd_args):
+        if isinstance(cmd_args, str):
+            cmd_args = cmd_args.split()
         self.cmd_args = cmd_args
-        self.script_name = basename(cmd_args[0])
+        self.script_name = _basename(cmd_args[0])
         total_funcs = len(self.functions_dict)
         if total_funcs == 0:
             raise NotImplementedError("No functions were decorated for command-line usage.")
@@ -351,7 +381,7 @@ class Exposer:
             self.raw_args = cmd_args[1:]
             self.func = next(iter(self.functions_dict.values()))
             if (len(cmd_args) > 1) and (cmd_args[1] in HELP_SET):
-                raise PrintHelp(self.complete_usage())
+                raise PrintHelp(self._complete_usage())
         else:
             # Multiple functions decorated :)
             # the first arg must be either the function name or help.
@@ -361,57 +391,62 @@ class Exposer:
             
             if len(cmd_args) < 2:
                 # not single so must be given a function name.
-                raise PrintHelp(self.complete_usage())
+                raise PrintHelp(self._complete_usage())
             
             if cmd_args[1] in HELP_SET:
-                raise PrintHelp(self.give_help())
+                raise PrintHelp(self._give_help())
             
             if cmd_args[1] in self.functions_dict:
                 func_name = cmd_args[1]
                 self.func = self.functions_dict[func_name]
             else:
                 raise PyoptError("Unkown function '%s'." % cmd_args[1])
+    
+    def parse_args(self, cmd_args):
+        self._setup(cmd_args)
         
         try:
             args, kwargs = self.func.parse(self.raw_args)
         except NotEnoughArgs as e:
             if len(self.raw_args) == 0:
                 # no arguments given at all must mean noob trying to get info.
-                raise PrintHelp(self.func_usage())
+                raise PrintHelp(self._func_usage())
             else:
                 raise
         
         return self.func.function, args, kwargs
         
-    def run(self, cmd_args=sys.argv):
+    def run(self, cmd_args=_sys.argv):
         try:
             func, args, kwargs = self.parse_args(cmd_args)
             return func(*args, **kwargs)
         except PrintHelp as e:
-            print(e)
+            self.print(e)
         except ValueError as e:
-            print("%s. Run with ? or -h for more help." % e)
+            self.print("%s. Run with ? or -h for more help." % e)
         except PyoptError as e:
-            print(e, "Run with ? or -h for more help.")
+            self.print(e, "Run with ? or -h for more help.")
     
-    def single_usage(self):
+    def _single_usage(self):
         func = self.func
         args_repr = func.parameters_repr()
         usage = "Usage: %s %s" % (self.script_name, args_repr)
-        if func.function.__doc__ is not None:
-            # strip for the docstring guys that don't want text on the same line with '''
-            usage += "\n" + indent(func.function.__doc__.strip(), 1)
+        
+        usage += '\n' + func.docstring_usage()
+        #if func.function.__doc__ is not None:
+        #    # strip for the docstring guys that don't want text on the same line with '''
+        #    usage += "\n" + indent(func.function.__doc__.strip(), 1)
         return usage
     
-    def func_usage(self):
+    def _func_usage(self):
         if self.is_single:
-            return self.single_usage()
+            return self._single_usage()
         else:
             return(self.func.get_usage())
     
-    def complete_usage(self):
+    def _complete_usage(self):
         if self.is_single:
-            return self.single_usage()
+            return self._single_usage()
         
         usage_lines = []
         usage_lines.append("Usage: %s [function_name] [args]" % self.script_name)
@@ -421,7 +456,7 @@ class Exposer:
         return '\n'.join(usage_lines)
     
     
-    def give_help(self):
+    def _give_help(self):
         try:
             # give help to a specific func, if an index error occurs, give complete usage.
             func_name = self.cmd_args[2]
@@ -431,6 +466,62 @@ class Exposer:
             return(self.func.get_usage())
         except (IndexError, KeyError) as e:
             # print usage for this script
-            return self.complete_usage()  
+            return self._complete_usage()  
 
+def _getfunctionspec(function):
+    if hasattr(function, '__annotations__'):
+        # python 3 only
+        arg_names_list, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = _inspect.getfullargspec(function)
+    else:
+        arg_names_list, varargs, varkw, defaults = _inspect.getargspec(function)
+        kwonlyargs, kwonlydefaults, annotations = [], {}, {}
+    
+    return arg_names_list, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations
 
+def _parse_docstring(function):
+    r"""
+    Parses a function's docstring for parameter documentation like this:
+        function - the function whose docstring is parsed.
+    
+    returned is the tuple (summary, docs_dict)
+        summary - the text before the first line of parameter documentation.
+        docs_dict - keys are parameter names and the values are the parameter's
+            documentation string.
+    
+    NOTE: The parsing algorithm just looks for lines that start with a parameter
+        name immediately followed by any amount of whitespace, hyphens or
+        colons. What follows the colon/hyphen/whitespace is the help.
+    WARNING: _parse_docstring only works with one line of documentation per
+        parameter so if you want to divide it to multiple lines use the \
+        character.
+    """
+    arg_names_list, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = _getfunctionspec(function)
+    docs = function.__doc__
+    if docs is None:
+        docs = ''
+    
+    lines = docs.splitlines()
+    
+    # find parameter documentation:
+    names = '|'.join(arg_names_list)
+    var_doc_re = _re.compile(r'(%s)[ \t-:]*(.*)' % names)
+    docs_dict = {}
+    
+    # first line where a param shows up. Initialized to an unreachable number.
+    first_line = len(docs)
+    for i, ln in enumerate(lines):
+        stripped = ln.strip()
+        match = var_doc_re.match(stripped)
+        if match:
+            if i < first_line:
+                first_line = i
+            name, doc = match.groups()
+            docs_dict[name] = doc.strip()
+    
+    if first_line < len(docs):
+        summary_lines = lines[:first_line]
+        summary = '\n'.join(summary_lines).strip()
+    else:
+        summary = ''
+    
+    return summary, docs_dict

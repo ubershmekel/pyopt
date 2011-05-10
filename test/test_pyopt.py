@@ -6,7 +6,7 @@ import unittest
 
 import pyopt
 
-class TestSingleParser(unittest.TestCase):
+class TestSingleParsers(unittest.TestCase):
     def test_single_arg_function(self):
         expose = pyopt.Exposer()
 
@@ -74,8 +74,8 @@ class TestSingleParser(unittest.TestCase):
         # note that "shaft" only appears in kwargs if it's changed.
         self.assertEqual(kwargs, {"nudge": True, "happy": True, "brightness": 120, "shaft": "dirt"})
 
-class TestMultipleParser(unittest.TestCase):
-    def test_everything(self):
+class TestOtherStuff(unittest.TestCase):
+    def test_multiple_parsers(self):
         expose = pyopt.Exposer()
         @expose.kwargs
         def bigfun(brightness:int, nudge:bool, happy:bool, shaft:str='gold'):
@@ -102,6 +102,82 @@ class TestMultipleParser(unittest.TestCase):
         self.assertEqual(args, [6, 2])
         self.assertEqual(kwargs, {})
 
+    def test_custom_types(self):
+        expose = pyopt.Exposer()
+        def high_type(text):
+            return text.upper()
+        
+        @expose.args
+        def robin(data:high_type):
+            return data
+
+        func, args, kwargs = expose.parse_args("a.py asdf")
+        self.assertEqual(robin, func)
+        self.assertEqual(args, ['ASDF'])
+        self.assertEqual(kwargs, {})
+        
+    def test_help_args(self):
+        expose = pyopt.Exposer()
+        @expose.args
+        def robin(data, whatever):
+            '''
+            This method steals from the rich and gives to the poor
+
+            data - the input
+            whatever - anything at all.
+            '''
+            pass
+
+        expose._setup("a.py")
+        help_str = expose._single_usage()
+        expected_help_str = 'Usage: a.py data whatever\n' \
+            'This method steals from the rich and gives to the poor\n' \
+            '\tdata - the input\n' \
+            '\twhatever - anything at all.'
+        
+        self.assertEqual(help_str, expected_help_str)
+
+    def test_help_kwargs(self):
+        expose = pyopt.Exposer()
+        @expose.kwargs
+        def robin(data, whatever):
+            '''
+            This method steals from the rich and gives to the poor
+
+            data - the input
+            whatever - anything at all.
+            '''
+            pass
+
+        expose._setup("a.py")
+        help_str = expose._single_usage()
+        expected_help_str = 'Usage: a.py -d data -w whatever\n' \
+            'This method steals from the rich and gives to the poor\n' \
+            '\t-d --data - the input\n' \
+            '\t-w --whatever - anything at all.'
+        
+        self.assertEqual(help_str, expected_help_str)
+
+    def test_help_mixed(self):
+        expose = pyopt.Exposer()
+        @expose.mixed
+        def robin(data, whatever):
+            '''
+            This method steals from the rich and gives to the poor
+
+            data - the input
+            whatever - anything at all.
+            '''
+            pass
+
+        expose._setup("a.py")
+        help_str = expose._single_usage()
+        expected_help_str = 'Usage: a.py -d data -w whatever\n' \
+            'This method steals from the rich and gives to the poor\n' \
+            '\t-d --data - the input\n' \
+            '\t-w --whatever - anything at all.'
+        
+        self.assertEqual(help_str, expected_help_str)
 
 if __name__ == '__main__':
     unittest.main()
