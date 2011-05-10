@@ -54,9 +54,8 @@ def roll_dice(number_of_faces:int, repetitions:int):
     -n --number_of_faces - the max value of the die.
     -r --repititions - the amount of times to throw the dice.
     """
-    results = (random.randint(1, number_of_faces) for i in range(repetitions))
-    for res in results:
-        print(res, end=' ')
+    for i in range(repetitions):
+        print(random.randint(1, number_of_faces))
 
 if __name__ == "__main__":
     # Now just run whichever functions you exposed, the return value is whatever
