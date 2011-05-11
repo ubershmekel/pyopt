@@ -1,5 +1,5 @@
 """
-pyopt version 0.7
+pyopt version 0.73
 
 A module for command-line options with a pythonic, decorator-centric syntax.
 
