@@ -318,12 +318,14 @@ class KwargsFunction(FunctionWrapper):
         return [], args_dict
 
 class Exposer:
-    def __init__(self, kw_funcs_list=[], pos_funcs_list=[], mixed_funcs_list=[]):
+    def __init__(self, kw_funcs_list=[], pos_funcs_list=[], mixed_funcs_list=[], default_cast=str):
         """
         Instead of decorators, you can pass functions to expose as a list.
         """
         self.functions_dict = {}
         self.print = print
+        
+        self.default_cast = default_cast
         
         for function in kw_funcs_list:
             self.kwargs(function)
@@ -338,7 +340,7 @@ class Exposer:
         A decorator that exposes the given function as a command-line function.
         Arguments will be passed by their order, without "switches" or options.
         """
-        self.functions_dict[function.__name__] = ArgsFunction(function)
+        self.functions_dict[function.__name__] = ArgsFunction(function, default_cast=self.default_cast)
         return function
     
     def kwargs(self, function):
@@ -350,7 +352,7 @@ class Exposer:
         2. Arguments with default values will be optional arguments.
         3. Arguments marked as bool don't take a parameter (just "-d" as opposed to "-d something")
         """
-        self.functions_dict[function.__name__] = KwargsFunction(function)
+        self.functions_dict[function.__name__] = KwargsFunction(function, default_cast=self.default_cast)
         return function
     
     def mixed(self, function):
@@ -364,7 +366,7 @@ class Exposer:
         4. The first argument without a hyphen is the first positional argument.
             from then on, no more options, just positional args.
         """
-        self.functions_dict[function.__name__] =  MixedFunction(function)
+        self.functions_dict[function.__name__] =  MixedFunction(function, default_cast=self.default_cast)
         return function
     
     def _setup(self, cmd_args):

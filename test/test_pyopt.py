@@ -25,6 +25,28 @@ class TestSingleParsers(unittest.TestCase):
         self.assertRaises(pyopt.PrintHelp, expose.parse_args, "a.py -h")
         self.assertRaises(pyopt.PyoptError, expose.parse_args, "a.py 1 2 3 4")
         
+    def test_annotations_not_mandatory(self):
+        expose = pyopt.Exposer()
+
+        @expose.args
+        def robin(archer, boulder, magic=42):
+            pass        
+        func, args, kwargs = expose.parse_args("a.py a 1.0")
+        self.assertEqual(func, robin)
+        self.assertEqual(args, ['a', '1.0'])
+        self.assertEqual(kwargs, {})
+    
+    def test_default_cast(self):
+        expose = pyopt.Exposer(default_cast=int)
+
+        @expose.args
+        def robin(archer, boulder, magic=42):
+            pass        
+        func, args, kwargs = expose.parse_args("a.py 2 3")
+        self.assertEqual(func, robin)
+        self.assertEqual(args, [2, 3])
+        self.assertEqual(kwargs, {})
+    
     def test_single_mixed_function(self):
         expose = pyopt.Exposer()
         @expose.mixed
