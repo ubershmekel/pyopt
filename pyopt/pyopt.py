@@ -66,7 +66,7 @@ HELP_SET = {"-h", "--help", "/?", "?", "-?"}
 
 
 
-def indent(string, tab_count):
+def _indent(string, tab_count):
     lines = string.splitlines()
     lines = [("\t" * tab_count) + ln.strip() for ln in lines]
     return '\n'.join(lines)
@@ -74,7 +74,7 @@ def indent(string, tab_count):
 
 
 
-class FunctionWrapper:
+class _FunctionWrapper:
     def __init__(self, function, default_cast=str):
         """
         Gives all the needed information about a function and puts it in
@@ -127,7 +127,7 @@ class FunctionWrapper:
             return ""
         else:
             # strip for the docstring guys that don't want text on the same line with '''
-            return indent(self.function.__doc__.strip(), 2)
+            return _indent(self.function.__doc__.strip(), 2)
     
     def get_usage(self):
         return "\t%s %s\n%s" % (self.name, self.parameters_repr(), self.get_doc())
@@ -153,7 +153,7 @@ class FunctionWrapper:
         raise NotImplementedError
 
 
-class ArgsFunction(FunctionWrapper):
+class _ArgsFunction(_FunctionWrapper):
     def parameters_repr(self):
         req_str = ["%s" % arg for arg in self.required]
         opt_str = ["[%s]" % arg for arg in self.optional]
@@ -182,7 +182,7 @@ class ArgsFunction(FunctionWrapper):
         
         return args_to_call_with, {}
 
-class MixedFunction(FunctionWrapper):
+class _MixedFunction(_FunctionWrapper):
     def parameters_repr(self):
         # self.arg_names is the authorative order
         # todo: fix this
@@ -247,7 +247,7 @@ class MixedFunction(FunctionWrapper):
             
         return args_list, kwargs_dict
 
-class KwargsFunction(FunctionWrapper):
+class _KwargsFunction(_FunctionWrapper):
     def parameters_repr(self):
         req_str = ["-%s %s" % (arg[0], arg) for arg in self.required]
         opt_str = ["[-%s %s]" % (arg[0], arg) for arg in self.optional if arg not in self.booleans]
@@ -255,7 +255,7 @@ class KwargsFunction(FunctionWrapper):
         
         return " ".join(req_str + opt_str + bools_str)
 
-    docstring_usage = MixedFunction.docstring_usage
+    docstring_usage = _MixedFunction.docstring_usage
     
     def _shortcuts(self):
         return {name[0]: name for name in self.arg_names}
@@ -340,7 +340,7 @@ class Exposer:
         A decorator that exposes the given function as a command-line function.
         Arguments will be passed by their order, without "switches" or options.
         """
-        self.functions_dict[function.__name__] = ArgsFunction(function, default_cast=self.default_cast)
+        self.functions_dict[function.__name__] = _ArgsFunction(function, default_cast=self.default_cast)
         return function
     
     def kwargs(self, function):
@@ -352,7 +352,7 @@ class Exposer:
         2. Arguments with default values will be optional arguments.
         3. Arguments marked as bool don't take a parameter (just "-d" as opposed to "-d something")
         """
-        self.functions_dict[function.__name__] = KwargsFunction(function, default_cast=self.default_cast)
+        self.functions_dict[function.__name__] = _KwargsFunction(function, default_cast=self.default_cast)
         return function
     
     def mixed(self, function):
@@ -366,7 +366,7 @@ class Exposer:
         4. The first argument without a hyphen is the first positional argument.
             from then on, no more options, just positional args.
         """
-        self.functions_dict[function.__name__] =  MixedFunction(function, default_cast=self.default_cast)
+        self.functions_dict[function.__name__] =  _MixedFunction(function, default_cast=self.default_cast)
         return function
     
     def _setup(self, cmd_args):
@@ -437,7 +437,7 @@ class Exposer:
         usage += '\n' + func.docstring_usage()
         #if func.function.__doc__ is not None:
         #    # strip for the docstring guys that don't want text on the same line with '''
-        #    usage += "\n" + indent(func.function.__doc__.strip(), 1)
+        #    usage += "\n" + _indent(func.function.__doc__.strip(), 1)
         return usage
     
     def _func_usage(self):
