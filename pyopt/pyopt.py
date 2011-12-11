@@ -43,11 +43,11 @@ Contact me at: ubershmekel at gmail
 """
 
 
-import sys as _sys
-from os.path import basename as _basename
-import getopt as _getopt
-import inspect as _inspect
-import re as _re
+import sys
+from os.path import basename
+import getopt
+import inspect
+import re
 
 class PyoptError(Exception): pass
 class PrintHelp(PyoptError): pass
@@ -57,11 +57,11 @@ HELP_SET = {"-h", "--help", "/?", "?", "-?"}
 
 
 # DBG
-#import pdb, _sys, traceback
+#import pdb, sys, traceback
 #def info(type, value, tb):
 #    traceback.print_exception(type, value, tb)
 #    pdb.pm()
-#_sys.excepthook = info
+#sys.excepthook = info
 # DBG
 
 
@@ -85,7 +85,8 @@ class _FunctionWrapper:
             for positional arguments.
         """
         
-        args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = _inspect.getfullargspec(function)
+        args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = _getfunctionspec(function)
+        
         
         arg_names = args
         # __defaults__ should have been an empty list, come on Guido...
@@ -94,7 +95,7 @@ class _FunctionWrapper:
         not_defaulted = arg_names[:not_default_count]
         
         # get all the casts from the annotations, default to default_cast (probably str)
-        casts = {name: function.__annotations__.get(name, default_cast) for name in arg_names}
+        casts = {name: annotations.get(name, default_cast) for name in arg_names}
         booleans = [arg for arg in arg_names if casts[arg] is bool]
         required = [arg for arg in not_defaulted if arg not in booleans]
         
@@ -152,6 +153,17 @@ class _FunctionWrapper:
         """
         raise NotImplementedError
 
+    def docstring_usage(self):
+        summary, docs_dict = _parse_docstring(self.function)
+        usage_lines = [summary]
+        short_to_name = self._shortcuts()
+        for name, explanation in docs_dict.items():
+            short = name[0]
+            if short_to_name[short] == name:
+                usage_lines.append('\t-%s --%s - %s' % (name[0], name, explanation))
+            else:
+                usage_lines.append('\t--%s - %s' % (name, explanation))
+        return '\n'.join(usage_lines)
 
 class _ArgsFunction(_FunctionWrapper):
     def parameters_repr(self):
@@ -191,17 +203,6 @@ class _MixedFunction(_FunctionWrapper):
         bools_str = ["[-%s]" % arg[0] for arg in self.booleans]
         return " ".join(req_str + opt_str + bools_str)
 
-    def docstring_usage(self):
-        summary, docs_dict = _parse_docstring(self.function)
-        usage_lines = [summary]
-        short_to_name = self._shortcuts()
-        for name, explanation in docs_dict.items():
-            short = name[0]
-            if short_to_name[short] == name:
-                usage_lines.append('\t-%s --%s - %s' % (name[0], name, explanation))
-            else:
-                usage_lines.append('\t--%s - %s' % (name, explanation))
-        return '\n'.join(usage_lines)
 
     def _shortcuts(self):
         return {name[0]: name for name in self.arg_names}
@@ -216,7 +217,7 @@ class _MixedFunction(_FunctionWrapper):
         long_opts += [name for name in self.booleans]
         long_opts += ["%s=" % name for name in self.required]
         
-        optlist, uncasted_args_list = _getopt.getopt(raw_args, shorts_str, long_opts)
+        optlist, uncasted_args_list = getopt.getopt(raw_args, shorts_str, long_opts)
         
         pos_args = list(self.arg_names)
         kwargs_dict = {}
@@ -255,8 +256,6 @@ class _KwargsFunction(_FunctionWrapper):
         
         return " ".join(req_str + opt_str + bools_str)
 
-    docstring_usage = _MixedFunction.docstring_usage
-    
     def _shortcuts(self):
         return {name[0]: name for name in self.arg_names}
     
@@ -323,7 +322,8 @@ class Exposer:
         Instead of decorators, you can pass functions to expose as a list.
         """
         self.functions_dict = {}
-        self.print = print
+        #py3k - self.printer = print
+        self.printer = __builtins__.get('print')
         
         self.default_cast = default_cast
         
@@ -373,7 +373,7 @@ class Exposer:
         if isinstance(cmd_args, str):
             cmd_args = cmd_args.split()
         self.cmd_args = cmd_args
-        self.script_name = _basename(cmd_args[0])
+        self.script_name = basename(cmd_args[0])
         total_funcs = len(self.functions_dict)
         if total_funcs == 0:
             raise NotImplementedError("No functions were decorated for command-line usage.")
@@ -418,16 +418,16 @@ class Exposer:
         
         return self.func.function, args, kwargs
         
-    def run(self, cmd_args=_sys.argv):
+    def run(self, cmd_args=sys.argv):
         try:
             func, args, kwargs = self.parse_args(cmd_args)
             return func(*args, **kwargs)
         except PrintHelp as e:
-            self.print(e)
+            self.printer(e)
         except ValueError as e:
-            self.print("%s. Run with ? or -h for more help." % e)
+            self.printer("%s. Run with ? or -h for more help." % e)
         except PyoptError as e:
-            self.print(e, "Run with ? or -h for more help.")
+            self.printer(e, "Run with ? or -h for more help.")
     
     def _single_usage(self):
         func = self.func
@@ -473,9 +473,9 @@ class Exposer:
 def _getfunctionspec(function):
     if hasattr(function, '__annotations__'):
         # python 3 only
-        arg_names_list, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = _inspect.getfullargspec(function)
+        arg_names_list, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations = inspect.getfullargspec(function)
     else:
-        arg_names_list, varargs, varkw, defaults = _inspect.getargspec(function)
+        arg_names_list, varargs, varkw, defaults = inspect.getargspec(function)
         kwonlyargs, kwonlydefaults, annotations = [], {}, {}
     
     return arg_names_list, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations
@@ -506,7 +506,7 @@ def _parse_docstring(function):
     
     # find parameter documentation:
     names = '|'.join(arg_names_list)
-    var_doc_re = _re.compile(r'(%s)[ \t-:]*(.*)' % names)
+    var_doc_re = re.compile(r'(%s)[ \t-:]*(.*)' % names)
     docs_dict = {}
     
     # first line where a param shows up. Initialized to an unreachable number.
@@ -527,3 +527,5 @@ def _parse_docstring(function):
         summary = ''
     
     return summary, docs_dict
+
+

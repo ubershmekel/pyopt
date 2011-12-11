@@ -9,7 +9,7 @@ import sys
 from pyopt import pyopt
 DOCUMENTATION = pyopt.__doc__
 
-VERSION = '0.77'
+VERSION = '0.79'
 
 # generate .rst file with documentation
 #open(os.path.join(os.path.dirname(__file__), 'documentation.rst'), 'w').write(DOCUMENTATION)
@@ -30,6 +30,7 @@ setup(
 		'License :: OSI Approved :: BSD License',
 		'Operating System :: OS Independent',
 		'Programming Language :: Python :: 3',
+		'Programming Language :: Python :: 2',
 		'Topic :: Utilities',
         'Topic :: Software Development :: Libraries :: Python Modules',
         'Topic :: Terminals',
