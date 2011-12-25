@@ -31,7 +31,7 @@ Currently known compromises that are open to discussion, e-mail me:
         different letter to avoid collisions.
     3. Annotations aren't mandatory, I don't know if this is the right way to go,
         it's an explicity vs convenience issue.
-    4. Booleans can't default to false. I couldn't think of a use case for this
+    4. Booleans can't default to True. I couldn't think of a use case for this
         so tell me if you did.
 
 License: whatever, I don't mind. Google Code made me choose so I went with
@@ -48,13 +48,13 @@ from os.path import basename
 import getopt
 import inspect
 import re
+import types
 
 class PyoptError(Exception): pass
 class PrintHelp(PyoptError): pass
 class NotEnoughArgs(PyoptError): pass
 
-HELP_SET = {"-h", "--help", "/?", "?", "-?"}
-
+HELP_SET = set(["-h", "--help", "/?", "?", "-?"])
 
 # DBG
 #import pdb, sys, traceback
@@ -71,6 +71,14 @@ def _indent(string, tab_count):
     lines = [("\t" * tab_count) + ln.strip() for ln in lines]
     return '\n'.join(lines)
 
+
+def _bool_cast(name, value):
+    return True
+
+
+_DEFAULT_SPECIAL_CASTS = {
+    bool: _bool_cast,
+    }
 
 
 
@@ -93,9 +101,19 @@ class _FunctionWrapper:
         defaults_count = 0 if (defaults is None) else len(defaults)
         not_default_count = len(arg_names) - defaults_count
         not_defaulted = arg_names[:not_default_count]
+        defaulted_args = arg_names[not_default_count:]
+        defaults_dict = dict(zip(defaulted_args, defaults))
         
         # get all the casts from the annotations, default to default_cast (probably str)
-        casts = {name: annotations.get(name, default_cast) for name in arg_names}
+        #casts = {name: annotations.get(name, default_cast) for name in arg_names}
+        casts = {}
+        for i, name in enumerate(arg_names):
+            if name in annotations:
+                casts[name] = annotations[name]
+            elif name in defaults_dict:
+                casts[name] = type(defaults_dict[name])
+            else:
+                casts[name] = default_cast
         booleans = [arg for arg in arg_names if casts[arg] is bool]
         required = [arg for arg in not_defaulted if arg not in booleans]
         
@@ -110,6 +128,7 @@ class _FunctionWrapper:
         self.needed_args = len(self.arg_names) - self.defaults_count
         
         self.casts = casts
+        self.special_casts = dict(_DEFAULT_SPECIAL_CASTS)
         
     
     def __call__(self, *args, **kwargs):
@@ -118,6 +137,9 @@ class _FunctionWrapper:
     def cast_parameter(self, name, value):
         try:
             type_to_cast = self.casts[name]
+            if type_to_cast in self.special_casts:
+                cast_func = self.special_casts[type_to_cast]
+                return cast_func(name, value)
             parsed_arg = type_to_cast(value)
             return parsed_arg
         except Exception as e:
@@ -205,7 +227,7 @@ class _MixedFunction(_FunctionWrapper):
 
 
     def _shortcuts(self):
-        return {name[0]: name for name in self.arg_names}
+        return dict([(name[0], name) for name in self.arg_names])
 
     def parse(self, raw_args=[]):
         short_to_name = self._shortcuts()
@@ -218,7 +240,7 @@ class _MixedFunction(_FunctionWrapper):
         long_opts += ["%s=" % name for name in self.required]
         
         optlist, uncasted_args_list = getopt.getopt(raw_args, shorts_str, long_opts)
-        
+
         pos_args = list(self.arg_names)
         kwargs_dict = {}
         for opt, val in optlist:
@@ -478,6 +500,12 @@ def _getfunctionspec(function):
         arg_names_list, varargs, varkw, defaults = inspect.getargspec(function)
         kwonlyargs, kwonlydefaults, annotations = [], {}, {}
     
+    # A fix for class-methods and instance-methods is to remove the first
+    # argument name (which is self or cls).
+    # In case of (*args, **kwargs) we don't intervene.
+    if isinstance(function, types.MethodType) and len(arg_names) > 0:
+        arg_names.pop(0)
+            
     return arg_names_list, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations
 
 def _parse_docstring(function):
