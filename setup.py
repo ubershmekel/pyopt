@@ -9,7 +9,7 @@ import sys
 from pyopt import pyopt
 DOCUMENTATION = pyopt.__doc__
 
-VERSION = '0.79'
+VERSION = '0.81'
 
 # generate .rst file with documentation
 #open(os.path.join(os.path.dirname(__file__), 'documentation.rst'), 'w').write(DOCUMENTATION)

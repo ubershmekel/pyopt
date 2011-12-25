@@ -97,8 +97,7 @@ class _FunctionWrapper:
         
         
         arg_names = args
-        # __defaults__ should have been an empty list, come on Guido...
-        defaults_count = 0 if (defaults is None) else len(defaults)
+        defaults_count = len(defaults)
         not_default_count = len(arg_names) - defaults_count
         not_defaulted = arg_names[:not_default_count]
         defaulted_args = arg_names[not_default_count:]
@@ -500,6 +499,10 @@ def _getfunctionspec(function):
         arg_names_list, varargs, varkw, defaults = inspect.getargspec(function)
         kwonlyargs, kwonlydefaults, annotations = [], {}, {}
     
+    # defaults should have been an empty list, come on Guido...
+    if defaults is None:
+        defaults = []
+
     # A fix for class-methods and instance-methods is to remove the first
     # argument name (which is self or cls).
     # In case of (*args, **kwargs) we don't intervene.
