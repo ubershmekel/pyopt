@@ -12,7 +12,8 @@ import sys
 from pyopt import pyopt
 DOCUMENTATION = pyopt.__doc__
 
-VERSION = '0.83'
+# THIS VERSION IS AUTO GENERATED FROM THE PYOPT.PY DOCSTRING
+VERSION = '0.84'
 
 # generate .rst file with documentation
 #open(os.path.join(os.path.dirname(__file__), 'documentation.rst'), 'w').write(DOCUMENTATION)
